@@ -5,6 +5,7 @@ import (
 	"github.com/caddyserver/caddy"
 	"github.com/caddyserver/caddy/caddyhttp/httpserver"
 	gonat "github.com/fd/go-nat"
+	"net"
 	"strconv"
 )
 
@@ -18,44 +19,46 @@ func init() {
 }
 
 func setup(c *caddy.Controller) error {
-	caddyPort, err := strconv.ParseInt(httpserver.Port, 10, 32)
-	if err != nil {
-		fmt.Printf("error: %s \n", err)
+	var (
+		caddyPort    int64
+		err          error
+		nat          gonat.NAT
+		deviceAddr   net.IP
+		internalAddr net.IP
+		externalAddr net.IP
+	)
+
+	if caddyPort, err = strconv.ParseInt(httpserver.Port, 10, 32); err != nil {
+		return err
 	}
 
-	nat, err := gonat.DiscoverGateway()
-	if err != nil {
-		fmt.Printf("error: %s \n", err)
+	if nat, err = gonat.DiscoverGateway(); err != nil {
+		return err
 	}
 	fmt.Printf("nat type: %s \n", nat.Type())
 
-	daddr, err := nat.GetDeviceAddress()
-	if err != nil {
-		fmt.Printf("error: %s \n", err)
+	if deviceAddr, err = nat.GetDeviceAddress(); err != nil {
+		return err
 	}
-	fmt.Printf("device address: %s \n", daddr)
+	fmt.Printf("device address: %s \n", deviceAddr)
 
-	iaddr, err := nat.GetInternalAddress()
-	if err != nil {
-		fmt.Printf("error: %s \n", err)
+	if internalAddr, err = nat.GetInternalAddress(); err != nil {
+		return err
 	}
-	fmt.Printf("internal address: %s \n", iaddr)
+	fmt.Printf("internal address: %s \n", internalAddr)
 
-	eaddr, err := nat.GetExternalAddress()
-	if err != nil {
-		fmt.Printf("error: %s \n", err)
+	if externalAddr, err = nat.GetExternalAddress(); err != nil {
+		return err
 	}
-	fmt.Printf("external address: %s \n", eaddr)
+	fmt.Printf("external address: %s \n", externalAddr)
 
-	eport, err := nat.AddPortMapping("tcp", int(caddyPort), "http", 60)
-	if err != nil {
-		fmt.Printf("error: %s \n", err)
+	if eport, err := nat.AddPortMapping("tcp", int(caddyPort), "http", 60); err != nil {
+		return err
+	} else {
+		fmt.Printf("nat test-page: http://%s:%d/ \n", externalAddr, eport)
+		c.OnShutdown(func() error {
+			return nat.DeletePortMapping("tcp", int(caddyPort))
+		})
 	}
-
-	fmt.Printf("nat test-page: http://%s:%d/ \n", eaddr, eport)
-
-	c.OnShutdown(func() error {
-		return nat.DeletePortMapping("tcp", int(caddyPort))
-	})
 	return nil
 }
